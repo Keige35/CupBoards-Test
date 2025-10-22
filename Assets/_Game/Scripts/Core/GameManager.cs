@@ -1,4 +1,5 @@
 using UnityEngine;
+using System.Collections;
 
 public class GameManager : MonoBehaviour
 {
@@ -20,7 +21,10 @@ public class GameManager : MonoBehaviour
         ServiceLocator.Instance.Register<InputHandler>(gameObject.AddComponent<InputHandler>());
         ServiceLocator.Instance.Register<IPieceFactory>(new PieceFactory());
 
+        ServiceLocator.Instance.Register<AnimationMovementService>(new AnimationMovementService());
+
         GameEvents.OnPieceMoved += OnPieceMoved;
+        GameEvents.OnMoveRequested += OnMoveRequested;
     }
 
     private void LoadLevel(string levelPath)
@@ -38,6 +42,44 @@ public class GameManager : MonoBehaviour
         {
             Debug.LogError("Failed to load level: " + levelPath);
         }
+    }
+
+    private void OnMoveRequested(BasePiece piece, Node targetNode)
+    {
+        var animationService = ServiceLocator.Instance.Get<AnimationMovementService>();
+        var pathfinder = ServiceLocator.Instance.Get<IPathfinder>();
+        var boardManager = ServiceLocator.Instance.Get<BoardManager>();
+
+        if (animationService.IsAnimating) return;
+
+        if (pathfinder.CanMoveTo(piece, targetNode, boardManager.GetBoardState()))
+        {
+            StartCoroutine(PerformAnimatedMove(piece, targetNode, animationService, pathfinder));
+        }
+    }
+
+    private IEnumerator PerformAnimatedMove(BasePiece piece, Node targetNode,
+                                         AnimationMovementService animationService,
+                                         IPathfinder pathfinder)
+    {
+        yield return StartCoroutine(animationService.AnimateMovement(piece, targetNode, pathfinder));
+
+        UpdatePiecePosition(piece, targetNode);
+
+        GameEvents.PieceMoved(piece, targetNode);
+    }
+
+    private void UpdatePiecePosition(BasePiece piece, Node targetNode)
+    {
+        if (piece.CurrentNode != null)
+        {
+            piece.CurrentNode.CurrentPiece = null;
+        }
+
+        piece.CurrentNode = targetNode;
+        targetNode.CurrentPiece = piece;
+
+        piece.transform.position = targetNode.transform.position;
     }
 
     private void OnPieceMoved(BasePiece piece, Node node)
@@ -62,5 +104,6 @@ public class GameManager : MonoBehaviour
     private void OnDestroy()
     {
         GameEvents.OnPieceMoved -= OnPieceMoved;
+        GameEvents.OnMoveRequested -= OnMoveRequested;
     }
 }
