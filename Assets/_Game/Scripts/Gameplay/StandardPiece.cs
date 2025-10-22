@@ -11,7 +11,7 @@ public class StandardPiece : BasePiece
     private Color originalColor;
 
     public override int PieceId => pieceId;
-    public override Node CurrentNode { get => currentNode; protected set => currentNode = value; }
+    public override Node CurrentNode { get => currentNode; set => currentNode = value; }
     public override Color PieceColor => pieceColor;
 
     private void Awake()

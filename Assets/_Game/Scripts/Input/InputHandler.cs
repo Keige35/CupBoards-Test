@@ -51,7 +51,7 @@ public class InputHandler : MonoBehaviour, IGameService
             Node clickedNode = boardManager.GetNodeAtPosition(worldPos);
             if (clickedNode != null)
             {
-                boardManager.MovePiece(selectedPiece, clickedNode);
+                GameEvents.MoveRequested(selectedPiece, clickedNode);
                 highlightManager.ClearHighlights();
                 selectedPiece = null;
             }
@@ -71,4 +71,5 @@ public class InputHandler : MonoBehaviour, IGameService
         var availableMoves = pathfinder.FindAvailableMoves(piece.CurrentNode, boardManager.GetBoardState());
         highlightManager.HighlightNodes(availableMoves);
     }
+
 }
