@@ -10,13 +10,11 @@ public class LevelLoader : MonoBehaviour, ILevelLoader
     public void Initialize()
     {
         if (_isInitialized) return;
-        Debug.Log("LevelLoader initialized");
         _isInitialized = true;
     }
 
     public void Cleanup()
     {
-        Debug.Log("LevelLoader cleaned up");
         _isInitialized = false;
     }
 
@@ -87,7 +85,8 @@ public class LevelLoader : MonoBehaviour, ILevelLoader
         return new LevelData[]
         {
             LoadLevel("Levels/level1"),
-            LoadLevel("Levels/level2")
+            LoadLevel("Levels/level2"),
+            LoadLevel("Levels/level3")
         };
     }
 }

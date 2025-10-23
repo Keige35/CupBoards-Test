@@ -10,15 +10,12 @@ public class InputHandler : MonoBehaviour, IGameService
         if (isInitialized) return;
 
         GameEvents.OnPieceSelected += OnPieceSelected;
-
-        Debug.Log("InputHandler initialized");
         isInitialized = true;
     }
 
     public void Cleanup()
     {
         GameEvents.OnPieceSelected -= OnPieceSelected;
-        Debug.Log("InputHandler cleaned up");
         isInitialized = false;
     }
 

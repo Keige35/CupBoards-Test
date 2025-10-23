@@ -6,17 +6,17 @@ public class AnimationMovementService : IGameService
     private float _moveSpeed = 40f;
     private bool _isAnimating = false;
 
+    public bool IsAnimating => _isAnimating;
+
     public void Initialize()
     {
-        Debug.Log("AnimationMovementService initialized");
     }
 
     public void Cleanup()
     {
-        Debug.Log("AnimationMovementService cleaned up");
     }
 
-    public bool IsAnimating => _isAnimating;
+  
 
     public IEnumerator AnimateMovement(BasePiece piece, Node targetNode, IPathfinder pathfinder)
     {

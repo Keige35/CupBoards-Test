@@ -13,14 +13,12 @@ public class HighlightManager : MonoBehaviour, IHighlightManager
     public void Initialize()
     {
         if (isInitialized) return;
-        Debug.Log("HighlightManager initialized");
         isInitialized = true;
     }
 
     public void Cleanup()
     {
         ClearHighlights();
-        Debug.Log("HighlightManager cleaned up");
         isInitialized = false;
     }
 

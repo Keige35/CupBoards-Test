@@ -4,7 +4,7 @@ using UnityEngine;
 public class VictoryPreviewBoard : MonoBehaviour
 {
     [Header("Preview Settings")]
-    [SerializeField] private string levelPath = "Levels/level1"; // »справлено: тот же уровень что и в GameManager
+    [SerializeField] private string levelPath = "Levels/level1";
     [SerializeField] private float previewScale = 1f;
     [SerializeField] private Vector2 previewOffset = new Vector2(50f, 0);
     [SerializeField] private Color connectionColor = new Color(0.4f, 0.4f, 0.4f, 0.6f);
@@ -41,8 +41,6 @@ public class VictoryPreviewBoard : MonoBehaviour
             Debug.LogError($"VictoryPreviewBoard: Failed to load level from {levelPath}");
             return;
         }
-
-        Debug.Log($"VictoryPreviewBoard: Loaded level with {levelData.nodeCount} nodes and {levelData.targetPositions.Count} target positions");
     }
 
     private ILevelLoader CreateTemporaryLevelLoader()
@@ -240,16 +238,5 @@ public class VictoryPreviewBoard : MonoBehaviour
     private void OnDestroy()
     {
         ClearPreview();
-    }
-
-    [ContextMenu("Update Preview")]
-    private void EditorUpdatePreview()
-    {
-#if UNITY_EDITOR
-        if (Application.isPlaying)
-        {
-            UpdatePreview();
-        }
-#endif
     }
 }

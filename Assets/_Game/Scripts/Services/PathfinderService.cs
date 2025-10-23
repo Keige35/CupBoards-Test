@@ -8,13 +8,11 @@ public class PathfinderService : IPathfinder
     public void Initialize()
     {
         if (_isInitialized) return;
-        Debug.Log("PathfinderService initialized");
         _isInitialized = true;
     }
 
     public void Cleanup()
     {
-        Debug.Log("PathfinderService cleaned up");
         _isInitialized = false;
     }
 

@@ -12,16 +12,14 @@ public class PieceFactory : IPieceFactory
         piecePrefab = Resources.Load<GameObject>("Prefabs/Piece");
         if (piecePrefab == null)
         {
-            Debug.LogError("Piece prefab not found in Resources/Prefabs/Piece");
+            Debug.LogError("Not found Piece prefab");
         }
 
-        Debug.Log("PieceFactory initialized");
         isInitialized = true;
     }
 
     public void Cleanup()
     {
-        Debug.Log("PieceFactory cleaned up");
         isInitialized = false;
     }
 

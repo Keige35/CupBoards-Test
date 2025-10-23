@@ -4,10 +4,13 @@ using System.Collections;
 public class GameManager : MonoBehaviour
 {
     [SerializeField] private string initialLevelPath = "Levels/level1";
-    private LevelData currentLevelData; // Добавлено: сохраняем LevelData
+    [SerializeField] private Canvas canvas;
+    private LevelData currentLevelData;
 
     private void Awake()
     {
+        canvas = FindAnyObjectByType<Canvas>();
+        canvas.gameObject.SetActive(false);
         InitializeServices();
         LoadLevel(initialLevelPath);
     }
@@ -33,7 +36,7 @@ public class GameManager : MonoBehaviour
         var levelLoader = ServiceLocator.Instance.Get<ILevelLoader>();
         var boardManager = ServiceLocator.Instance.Get<BoardManager>();
 
-        currentLevelData = levelLoader.LoadLevel(levelPath); // Сохраняем LevelData
+        currentLevelData = levelLoader.LoadLevel(levelPath);
         if (currentLevelData != null)
         {
             boardManager.CreateBoard(currentLevelData);
@@ -82,9 +85,8 @@ public class GameManager : MonoBehaviour
 
         piece.transform.position = targetNode.transform.position;
 
-        // ОБНОВЛЯЕМ СОСТОЯНИЕ ДОСКИ ПОСЛЕ ПЕРЕМЕЩЕНИЯ
         var boardManager = ServiceLocator.Instance.Get<BoardManager>();
-        boardManager.UpdateBoardState(); // Добавлен вызов обновления
+        boardManager.UpdateBoardState();
     }
 
     private void OnPieceMoved(BasePiece piece, Node node)
@@ -97,14 +99,11 @@ public class GameManager : MonoBehaviour
         var victoryChecker = ServiceLocator.Instance.Get<IVictoryChecker>();
         var boardManager = ServiceLocator.Instance.Get<BoardManager>();
 
-        // Используем сохраненный currentLevelData вместо повторной загрузки
         if (victoryChecker.CheckVictory(currentLevelData, boardManager.GetBoardState()))
         {
             GameEvents.LevelCompleted();
-            Debug.Log("Level Completed! Congratulations!");
-
-            // Визуальное подтверждение победы
             StartCoroutine(VictoryAnimation());
+            canvas.gameObject.SetActive(true);
         }
     }
 
@@ -115,7 +114,6 @@ public class GameManager : MonoBehaviour
         {
             Color originalColor = mainCamera.backgroundColor;
 
-            // Мигание экрана 3 раза
             for (int i = 0; i < 3; i++)
             {
                 mainCamera.backgroundColor = Color.green;
