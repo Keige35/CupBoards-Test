@@ -4,6 +4,7 @@ using System.Collections;
 public class GameManager : MonoBehaviour
 {
     [SerializeField] private string initialLevelPath = "Levels/level1";
+    private LevelData currentLevelData; // Добавлено: сохраняем LevelData
 
     private void Awake()
     {
@@ -32,10 +33,10 @@ public class GameManager : MonoBehaviour
         var levelLoader = ServiceLocator.Instance.Get<ILevelLoader>();
         var boardManager = ServiceLocator.Instance.Get<BoardManager>();
 
-        LevelData levelData = levelLoader.LoadLevel(levelPath);
-        if (levelData != null)
+        currentLevelData = levelLoader.LoadLevel(levelPath); // Сохраняем LevelData
+        if (currentLevelData != null)
         {
-            boardManager.CreateBoard(levelData);
+            boardManager.CreateBoard(currentLevelData);
             GameEvents.LevelLoaded();
         }
         else
@@ -80,6 +81,10 @@ public class GameManager : MonoBehaviour
         targetNode.CurrentPiece = piece;
 
         piece.transform.position = targetNode.transform.position;
+
+        // ОБНОВЛЯЕМ СОСТОЯНИЕ ДОСКИ ПОСЛЕ ПЕРЕМЕЩЕНИЯ
+        var boardManager = ServiceLocator.Instance.Get<BoardManager>();
+        boardManager.UpdateBoardState(); // Добавлен вызов обновления
     }
 
     private void OnPieceMoved(BasePiece piece, Node node)
@@ -89,15 +94,35 @@ public class GameManager : MonoBehaviour
 
     private void CheckVictoryCondition()
     {
-        var levelLoader = ServiceLocator.Instance.Get<ILevelLoader>();
         var victoryChecker = ServiceLocator.Instance.Get<IVictoryChecker>();
         var boardManager = ServiceLocator.Instance.Get<BoardManager>();
 
-        LevelData currentLevelData = levelLoader.LoadLevel(initialLevelPath);
+        // Используем сохраненный currentLevelData вместо повторной загрузки
         if (victoryChecker.CheckVictory(currentLevelData, boardManager.GetBoardState()))
         {
             GameEvents.LevelCompleted();
             Debug.Log("Level Completed! Congratulations!");
+
+            // Визуальное подтверждение победы
+            StartCoroutine(VictoryAnimation());
+        }
+    }
+
+    private IEnumerator VictoryAnimation()
+    {
+        Camera mainCamera = Camera.main;
+        if (mainCamera != null)
+        {
+            Color originalColor = mainCamera.backgroundColor;
+
+            // Мигание экрана 3 раза
+            for (int i = 0; i < 3; i++)
+            {
+                mainCamera.backgroundColor = Color.green;
+                yield return new WaitForSeconds(0.3f);
+                mainCamera.backgroundColor = originalColor;
+                yield return new WaitForSeconds(0.3f);
+            }
         }
     }
 

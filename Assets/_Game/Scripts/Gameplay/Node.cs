@@ -10,11 +10,6 @@ public class Node : MonoBehaviour
 
     public int Id => id;
     public List<Node> ConnectedNodes => connectedNodes;
-    /*public BasePiece CurrentPiece
-    {
-        get => currentPiece;
-        set => currentPiece = value;
-    }*/
     public BasePiece CurrentPiece { get; set; }
 
     private void Awake()

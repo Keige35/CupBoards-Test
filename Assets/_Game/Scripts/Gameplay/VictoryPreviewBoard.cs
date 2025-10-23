@@ -4,9 +4,9 @@ using UnityEngine;
 public class VictoryPreviewBoard : MonoBehaviour
 {
     [Header("Preview Settings")]
-    [SerializeField] private string levelPath = "Levels/level2";
+    [SerializeField] private string levelPath = "Levels/level1"; // Исправлено: тот же уровень что и в GameManager
     [SerializeField] private float previewScale = 1f;
-    [SerializeField] private Vector2 previewOffset = new Vector2(50f,0);
+    [SerializeField] private Vector2 previewOffset = new Vector2(50f, 0);
     [SerializeField] private Color connectionColor = new Color(0.4f, 0.4f, 0.4f, 0.6f);
     [SerializeField] private float connectionWidth = 0.03f;
 
@@ -28,7 +28,6 @@ public class VictoryPreviewBoard : MonoBehaviour
     {
         LoadLevelData();
         CreatePreviewBoard();
-
         SetupDisplay();
     }
 
@@ -203,7 +202,6 @@ public class VictoryPreviewBoard : MonoBehaviour
         titleObject.transform.SetParent(transform);
         titleObject.transform.localPosition = Vector3.zero;
 
-        // Можно добавить TextMesh для 3D текста
         TextMesh textMesh = titleObject.AddComponent<TextMesh>();
         textMesh.text = "Победная Комбинация";
         textMesh.fontSize = 45;
@@ -212,7 +210,6 @@ public class VictoryPreviewBoard : MonoBehaviour
         textMesh.color = Color.white;
 
         titleObject.transform.localPosition = new Vector3(25f, 30f, 0f);
-        //titleObject.transform.localScale = Vector3.one * 0.1f;
     }
 
     private void ClearPreview()

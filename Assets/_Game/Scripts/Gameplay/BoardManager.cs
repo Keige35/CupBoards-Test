@@ -17,9 +17,10 @@ public class BoardManager : MonoBehaviour, IGameService
     private void Awake()
     {
         nodePrefab = Resources.Load<GameObject>("Prefabs/Node");
-        GameObject linePrefab  = Resources.Load<GameObject>("Prefabs/ConnectionLine");
+        GameObject linePrefab = Resources.Load<GameObject>("Prefabs/ConnectionLine");
         connectionLinePrefab = linePrefab.GetComponent<LineRenderer>();
     }
+
     public List<Node> Nodes => nodes;
     public List<BasePiece> Pieces => pieces;
 
@@ -173,6 +174,13 @@ public class BoardManager : MonoBehaviour, IGameService
         return boardState;
     }
 
+    // ДОБАВЛЕНО: Метод для обновления состояния доски
+    public void UpdateBoardState()
+    {
+        boardState = new BoardState(pieces, nodes);
+        Debug.Log($"BoardState updated. Current positions: [{string.Join(", ", boardState.GetCurrentPositions())}]");
+    }
+
     public void MovePiece(BasePiece piece, Node targetNode)
     {
         if (piece == null)
@@ -223,7 +231,7 @@ public class BoardManager : MonoBehaviour, IGameService
         Debug.Log("Board cleared");
     }
 
-    public Node GetNodeAtPosition(Vector2 worldPosition, float radius = 0.5f)
+    public Node GetNodeAtPosition(Vector2 worldPosition, float radius = 1f)
     {
         foreach (var node in nodes)
         {
@@ -233,7 +241,7 @@ public class BoardManager : MonoBehaviour, IGameService
         return null;
     }
 
-    public BasePiece GetPieceAtPosition(Vector2 worldPosition, float radius = 0.5f)
+    public BasePiece GetPieceAtPosition(Vector2 worldPosition, float radius = 1.2f)
     {
         foreach (var piece in pieces)
         {
@@ -278,6 +286,22 @@ public class BoardManager : MonoBehaviour, IGameService
 
         Debug.Log($"Connection Lines: {connectionLines.Count}");
         Debug.Log($"=== END DEBUG INFO ===");
+    }
+
+    // ДОБАВЛЕНО: Метод для тестирования проверки победы
+    [ContextMenu("Test Victory Check")]
+    public void TestVictoryCheck()
+    {
+        var gameManager = FindObjectOfType<GameManager>();
+        var victoryChecker = ServiceLocator.Instance.Get<IVictoryChecker>();
+        var levelLoader = ServiceLocator.Instance.Get<ILevelLoader>();
+
+        LevelData levelData = levelLoader.LoadLevel("Levels/level1");
+        if (levelData != null && boardState != null)
+        {
+            bool result = victoryChecker.CheckVictory(levelData, boardState);
+            Debug.Log($"Manual victory check result: {result}");
+        }
     }
 
     private void OnDrawGizmos()
