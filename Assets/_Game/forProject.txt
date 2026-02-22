@@ -1,0 +1,594 @@
+1. Модели данных (EventModels.cs)
+Поместите в отдельный файл.
+
+csharp
+using System;
+
+[Serializable]
+public class EventSettings
+{
+    public int globalSeed;
+    public int maxEventsPerTile;
+    public EventTypeConfig[] eventTypes;
+}
+
+[Serializable]
+public class EventTypeConfig
+{
+    public int id;
+    public string name;
+    public float probability;      // 0..1
+    public float speedFactor;      // множитель скорости (0..1)
+    public float costPenalty;      // фиксированный штраф
+}
+
+[Serializable]
+public class PathRequest
+{
+    public long startSegmentId;
+    public long endSegmentId;
+}
+
+[Serializable]
+public class PathResponse
+{
+    public long[] pathSegments;
+    public float totalDistance;
+}
+
+[Serializable]
+public class SegmentEventInfo
+{
+    public long segmentId;
+    public int eventType;
+}
+
+[Serializable]
+public class RouteCostRequest
+{
+    public long[] pathSegments;
+    public SegmentEventInfo[] events;
+    public int transportType;      // заглушка
+    public int cargoType;           // заглушка
+}
+
+[Serializable]
+public class RouteCostResponse
+{
+    public float totalDistance;
+    public float totalTime;
+    public float totalCost;
+}
+2. TileSegment (используется вашей системой генерации)
+Этот класс должен быть у вас. Пример:
+
+csharp
+using UnityEngine;
+
+[System.Serializable]
+public class TileSegment
+{
+    public long id;                 // уникальный ID сегмента (совпадает с серверным)
+    public Transform spawnPoint;     // точка для спавна префаба события
+}
+3. EventManager.cs
+Главный управляющий класс. Добавьте на сцену как отдельный GameObject.
+
+csharp
+using System;
+using System.Collections;
+using System.Collections.Generic;
+using UnityEngine;
+using UnityEngine.Networking;
+
+public class EventManager : MonoBehaviour
+{
+    [Header("Server")]
+    [SerializeField] private string serverUrl = "http://localhost:5000";
+
+    [Header("Event Prefabs")]
+    [SerializeField] private GameObject[] eventPrefabs; // индекс = eventTypeId
+
+    private EventSettings eventSettings;
+    private int globalSeed;
+    private int maxEventsPerTile;
+    private Dictionary<int, EventTypeConfig> eventConfigs;
+
+    // segmentId -> eventTypeId
+    private Dictionary<long, int> segmentEvents = new Dictionary<long, int>();
+
+    // Для удаления при выгрузке тайла: координаты тайла -> список спавненных объектов
+    private Dictionary<Vector2Int, List<GameObject>> tileEventObjects = new Dictionary<Vector2Int, List<GameObject>>();
+
+    public event Action OnSettingsLoaded;
+
+    private void Start()
+    {
+        StartCoroutine(RequestEventSettings());
+    }
+
+    private IEnumerator RequestEventSettings()
+    {
+        string url = $"{serverUrl}/api/events/settings";
+        using (UnityWebRequest request = UnityWebRequest.Get(url))
+        {
+            yield return request.SendWebRequest();
+
+            if (request.result == UnityWebRequest.Result.Success)
+            {
+                string json = request.downloadHandler.text;
+                eventSettings = JsonUtility.FromJson<EventSettings>(json);
+                ApplySettings(eventSettings);
+                Debug.Log("Event settings loaded");
+                OnSettingsLoaded?.Invoke();
+            }
+            else
+            {
+                Debug.LogError($"Failed to load event settings: {request.error}");
+            }
+        }
+    }
+
+    private void ApplySettings(EventSettings settings)
+    {
+        globalSeed = settings.globalSeed;
+        maxEventsPerTile = settings.maxEventsPerTile;
+        eventConfigs = new Dictionary<int, EventTypeConfig>();
+        foreach (var cfg in settings.eventTypes)
+            eventConfigs[cfg.id] = cfg;
+    }
+
+    /// <summary>Вызывается вашей системой при генерации тайла</summary>
+    public void GenerateEventsForTile(int tileX, int tileY, List<TileSegment> segments)
+    {
+        if (eventConfigs == null || eventConfigs.Count == 0)
+        {
+            Debug.LogWarning("Event settings not loaded yet");
+            return;
+        }
+
+        int tileSeed = Hash(globalSeed, tileX, tileY);
+        System.Random rng = new System.Random(tileSeed);
+
+        int eventsOnTile = 0;
+        List<GameObject> spawned = new List<GameObject>();
+
+        // фиксированный порядок
+        segments.Sort((a, b) => a.id.CompareTo(b.id));
+
+        foreach (var seg in segments)
+        {
+            if (eventsOnTile >= maxEventsPerTile) break;
+
+            double roll = rng.NextDouble();
+            int selectedType = -1;
+            float cumulative = 0f;
+            foreach (var kvp in eventConfigs)
+            {
+                cumulative += kvp.Value.probability;
+                if (roll < cumulative)
+                {
+                    selectedType = kvp.Key;
+                    break;
+                }
+            }
+
+            if (selectedType != -1)
+            {
+                segmentEvents[seg.id] = selectedType;
+
+                if (eventPrefabs != null && selectedType >= 0 && selectedType < eventPrefabs.Length && eventPrefabs[selectedType] != null)
+                {
+                    GameObject instance = Instantiate(eventPrefabs[selectedType], seg.spawnPoint.position, seg.spawnPoint.rotation, seg.spawnPoint);
+                    spawned.Add(instance);
+                }
+
+                eventsOnTile++;
+            }
+        }
+
+        Vector2Int coord = new Vector2Int(tileX, tileY);
+        if (tileEventObjects.ContainsKey(coord))
+        {
+            foreach (var obj in tileEventObjects[coord]) Destroy(obj);
+            tileEventObjects[coord] = spawned;
+        }
+        else
+        {
+            tileEventObjects.Add(coord, spawned);
+        }
+    }
+
+    /// <summary>Вызывается при выгрузке тайла</summary>
+    public void ClearEventsForTile(int tileX, int tileY)
+    {
+        Vector2Int coord = new Vector2Int(tileX, tileY);
+        if (tileEventObjects.TryGetValue(coord, out var list))
+        {
+            foreach (var obj in list) Destroy(obj);
+            tileEventObjects.Remove(coord);
+        }
+        // Записи в segmentEvents можно не чистить (сегменты всё равно исчезнут)
+    }
+
+    /// <summary>После получения пути от сервера вызовите этот метод</summary>
+    public void ProcessPath(PathResponse pathResponse, int transportType, int cargoType, Action<RouteCostResponse> callback)
+    {
+        List<SegmentEventInfo> eventsOnPath = new List<SegmentEventInfo>();
+        foreach (long segId in pathResponse.pathSegments)
+        {
+            if (segmentEvents.TryGetValue(segId, out int evType))
+                eventsOnPath.Add(new SegmentEventInfo { segmentId = segId, eventType = evType });
+        }
+        StartCoroutine(SendRouteCostRequest(pathResponse.pathSegments, eventsOnPath, transportType, cargoType, callback));
+    }
+
+    private IEnumerator SendRouteCostRequest(long[] pathSegments, List<SegmentEventInfo> events, int transportType, int cargoType, Action<RouteCostResponse> callback)
+    {
+        var req = new RouteCostRequest
+        {
+            pathSegments = pathSegments,
+            events = events.ToArray(),
+            transportType = transportType,
+            cargoType = cargoType
+        };
+
+        string json = JsonUtility.ToJson(req);
+        string url = $"{serverUrl}/api/route/cost";
+
+        using (UnityWebRequest request = UnityWebRequest.Post(url, json, "application/json"))
+        {
+            yield return request.SendWebRequest();
+
+            if (request.result == UnityWebRequest.Result.Success)
+            {
+                var resp = JsonUtility.FromJson<RouteCostResponse>(request.downloadHandler.text);
+                callback?.Invoke(resp);
+            }
+            else
+            {
+                Debug.LogError($"Route cost error: {request.error}");
+                callback?.Invoke(null);
+            }
+        }
+    }
+
+    public bool TryGetEvent(long segmentId, out int eventType) => segmentEvents.TryGetValue(segmentId, out eventType);
+
+    private int Hash(int seed, int x, int y)
+    {
+        unchecked
+        {
+            int hash = seed;
+            hash = hash * 73856093 ^ x;
+            hash = hash * 19349663 ^ y;
+            return hash;
+        }
+    }
+}
+Сервер (ASP.NET Core)
+1. Модели (Models/EventModels.cs)
+csharp
+using System.Collections.Generic;
+using System.Text.Json.Serialization;
+
+namespace YourServer.Models
+{
+    public class EventSettings
+    {
+        [JsonPropertyName("globalSeed")]
+        public int GlobalSeed { get; set; }
+
+        [JsonPropertyName("maxEventsPerTile")]
+        public int MaxEventsPerTile { get; set; }
+
+        [JsonPropertyName("eventTypes")]
+        public List<EventTypeConfig> EventTypes { get; set; }
+    }
+
+    public class EventTypeConfig
+    {
+        [JsonPropertyName("id")]
+        public int Id { get; set; }
+
+        [JsonPropertyName("name")]
+        public string Name { get; set; }
+
+        [JsonPropertyName("probability")]
+        public float Probability { get; set; }
+
+        [JsonPropertyName("speedFactor")]
+        public float SpeedFactor { get; set; }
+
+        [JsonPropertyName("costPenalty")]
+        public float CostPenalty { get; set; }
+    }
+
+    public class PathRequest
+    {
+        [JsonPropertyName("startSegmentId")]
+        public long StartSegmentId { get; set; }
+
+        [JsonPropertyName("endSegmentId")]
+        public long EndSegmentId { get; set; }
+    }
+
+    public class PathResponse
+    {
+        [JsonPropertyName("pathSegments")]
+        public long[] PathSegments { get; set; }
+
+        [JsonPropertyName("totalDistance")]
+        public float TotalDistance { get; set; }
+    }
+
+    public class SegmentEventInfo
+    {
+        [JsonPropertyName("segmentId")]
+        public long SegmentId { get; set; }
+
+        [JsonPropertyName("eventType")]
+        public int EventType { get; set; }
+    }
+
+    public class RouteCostRequest
+    {
+        [JsonPropertyName("pathSegments")]
+        public long[] PathSegments { get; set; }
+
+        [JsonPropertyName("events")]
+        public SegmentEventInfo[] Events { get; set; }
+
+        [JsonPropertyName("transportType")]
+        public int TransportType { get; set; }
+
+        [JsonPropertyName("cargoType")]
+        public int CargoType { get; set; }
+    }
+
+    public class RouteCostResponse
+    {
+        [JsonPropertyName("totalDistance")]
+        public float TotalDistance { get; set; }
+
+        [JsonPropertyName("totalTime")]
+        public float TotalTime { get; set; }
+
+        [JsonPropertyName("totalCost")]
+        public float TotalCost { get; set; }
+    }
+}
+2. Контроллер (Controllers/EventController.cs)
+csharp
+using Microsoft.AspNetCore.Mvc;
+using System.Collections.Generic;
+using System.Linq;
+using YourServer.Models;
+
+namespace YourServer.Controllers
+{
+    [ApiController]
+    [Route("api/events")]
+    public class EventController : ControllerBase
+    {
+        // В реальном проекте загружайте из БД
+        private static readonly Dictionary<long, float> _segmentLengths = new Dictionary<long, float>();
+        private static readonly Dictionary<int, EventTypeConfig> _eventConfigs = new Dictionary<int, EventTypeConfig>();
+
+        private const float BaseSpeed = 10f;          // м/с
+        private const float BaseCostPerKm = 5f;       // валюта/км
+        private const float CargoMultiplier = 1f;     // пока 1
+
+        [HttpGet("settings")]
+        public ActionResult<EventSettings> GetSettings()
+        {
+            // Заглушка: вернуть тестовые данные
+            var settings = new EventSettings
+            {
+                GlobalSeed = 12345,
+                MaxEventsPerTile = 3,
+                EventTypes = _eventConfigs.Values.ToList()
+            };
+            return Ok(settings);
+        }
+
+        [HttpPost("cost")]
+        public ActionResult<RouteCostResponse> CalculateCost([FromBody] RouteCostRequest request)
+        {
+            if (request.PathSegments == null || request.PathSegments.Length == 0)
+                return BadRequest("No path segments");
+
+            var eventMap = request.Events?.ToDictionary(e => e.SegmentId, e => e.EventType) ?? new Dictionary<long, int>();
+
+            float totalTime = 0f;
+            float totalCost = 0f;
+
+            foreach (long segId in request.PathSegments)
+            {
+                if (!_segmentLengths.TryGetValue(segId, out float length))
+                    continue; // или вернуть ошибку
+
+                float baseTime = length / BaseSpeed;
+
+                if (eventMap.TryGetValue(segId, out int evType) && _eventConfigs.TryGetValue(evType, out var cfg))
+                {
+                    totalTime += baseTime / cfg.SpeedFactor;
+                    totalCost += cfg.CostPenalty;
+                }
+                else
+                {
+                    totalTime += baseTime;
+                }
+            }
+
+            float totalDistance = request.PathSegments.Sum(id => _segmentLengths.GetValueOrDefault(id));
+            totalCost += totalDistance * BaseCostPerKm * CargoMultiplier;
+
+            return Ok(new RouteCostResponse
+            {
+                TotalDistance = totalDistance,
+                TotalTime = totalTime,
+                TotalCost = totalCost
+            });
+        }
+    }
+}
+3. (Опционально) Эндпоинт для поиска пути
+Если нужен:
+
+csharp
+[HttpPost("path")]
+public ActionResult<PathResponse> GetPath([FromBody] PathRequest request)
+{
+    // Логика поиска кратчайшего пути в графе
+    // ...
+}
+Интеграция
+Клиент: разместите EventManager на сцене, укажите URL сервера и префабы событий.
+
+При генерации тайла вызывайте eventManager.GenerateEventsForTile(tileX, tileY, segments).
+
+После получения PathResponse от сервера (через ваш существующий механизм) вызывайте eventManager.ProcessPath(...).
+
+В колбэке отобразите полученные totalTime и totalCost.
+
+
+
+
+
+Схема работы системы случайных событий
+1. Инициализация сцены (клиент → сервер → клиент)
+Клиент (при старте сцены) запрашивает у сервера параметры генерации событий.
+
+Сервер отвечает:
+
+globalSeed — число для детерминированной генерации.
+
+maxEventsPerTile — максимальное количество событий на один тайл.
+
+eventTypes — массив типов событий с параметрами:
+
+eventTypeId (int)
+
+probability (float, 0..1) — вероятность выпадения на сегмент
+
+speedFactor (float) — множитель скорости (0..1)
+
+costPenalty (float) — штраф к стоимости (в валюте)
+
+(другие параметры для расчётов, если нужны)
+
+2. Генерация тайлов и событий (только клиент)
+При генерации каждого тайла клиент:
+
+Определяет список сегментов дороги, принадлежащих этому тайлу (ID сегментов известны, так как клиент строит мир в соответствии с серверной базой ID).
+
+Вычисляет tileSeed = F(globalSeed, tileX, tileY).
+
+Инициализирует ГСЧ с tileSeed.
+
+Последовательно перебирает все сегменты тайла (в фиксированном порядке, например, по возрастанию ID).
+
+Для каждого сегмента:
+
+Если текущее количество сгенерированных событий на этом тайле >= maxEventsPerTile — пропускает сегмент.
+
+Генерирует число r = random.NextDouble().
+
+Сравнивает r с probability событий (с учётом кумулятивных вероятностей, если типов несколько). Если r попадает в диапазон какого-то события — создаёт событие этого типа на данном сегменте.
+
+Увеличивает счётчик событий на тайле.
+
+Сохраняет в локальном словаре Dictionary<long, int> _segmentEvents (ID сегмента → тип события).
+
+Отображает префабы событий на соответствующих сегментах (для визуального восприятия игроком).
+
+3. Построение пути (клиент ↔ сервер)
+Шаг 3.1. Запрос списка сегментов пути
+
+Клиент (игрок проложил путь через 2 или более точек):
+
+Отправляет на сервер startSegmentId и endSegmentId (или массив ID точек для многоточечного маршрута — тогда последовательно для каждой пары).
+
+Сервер:
+
+По базе данных (или in-memory графу) находит кратчайший путь между указанными сегментами.
+
+Возвращает клиенту:
+
+json
+{
+  "pathSegments": [12345, 12346, 12347, ...],
+  "totalDistance": 1250.5
+}
+Если путь состоит из нескольких отрезков (точка A → B → C), сервер последовательно обрабатывает каждый отрезок и возвращает общий массив сегментов (или клиент сам склеивает результаты нескольких запросов).
+
+Шаг 3.2. Визуализация пути на клиенте
+
+Клиент получает массив pathSegments и отрисовывает визуальный путь (эта механика уже реализована, как вы сказали).
+
+Шаг 3.3. Проверка событий на пути
+
+Клиент проходит по всем pathSegments и для каждого segmentId проверяет наличие в локальном словаре _segmentEvents. Формирует список:
+
+json
+{
+  "eventsOnPath": [
+    { "segmentId": 12346, "eventType": 1 },
+    { "segmentId": 12400, "eventType": 2 }
+  ]
+}
+Если событий нет — список пустой.
+
+Шаг 3.4. Отправка событий на сервер для расчёта
+
+Клиент отправляет на сервер:
+
+json
+{
+  "pathSegments": [12345, 12346, ...], // можно не передавать, если сервер уже имеет этот путь по предыдущему запросу, но для надёжности можно включить
+  "events": [ { "segmentId": 12346, "eventType": 1 }, ... ],
+  "transportType": 1,   // заглушка, в будущем будет реальный тип
+  "cargoType": 1        // заглушка
+}
+Шаг 3.5. Расчёт на сервере
+
+Сервер имеет:
+
+Длины сегментов (в БД или кэше), доступные по segmentId.
+
+Параметры событий (speedFactor, costPenalty) по eventType.
+
+Базовые параметры транспорта и груза (пока константы).
+
+Сервер вычисляет:
+
+totalTime = сумма по каждому сегменту (segmentLength / baseSpeed) с учётом speedFactor события, если оно есть на этом сегменте.
+
+totalCost = totalDistance * baseCostPerKm * cargoMultiplier + сумма costPenalty всех событий на пути.
+
+Шаг 3.6. Ответ клиенту
+
+Сервер возвращает:
+
+json
+{
+  "totalDistance": 1250.5,
+  "totalTime": 360.0,    // в секундах или минутах
+  "totalCost": 500.0
+}
+4. Финальное действие игрока
+Клиент отображает полученные параметры. Игрок либо принимает путь (и отправляется в рейс), либо сбрасывает и строит новый.
+
+5. Повторная загрузка тайлов
+Если игрок выгрузил тайл (ушёл далеко), а потом вернулся:
+
+Клиент заново генерирует тайл (создаёт сегменты, так как мир строится процедурно).
+
+Использует тот же globalSeed и координаты тайла для вычисления tileSeed.
+
+Генерирует события заново тем же алгоритмом.
+
+Так как seed тот же, события выпадут на те же сегменты, что и в первый раз.
+
+Визуально восстанавливает префабы событий.
